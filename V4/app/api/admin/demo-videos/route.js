@@ -39,12 +39,22 @@ export async function GET() {
   const admin = await requireAdminSession();
   const TAB = await ensureDemoVideosTab().catch(() => "DemoVideos");
   const rows = await readSheet(TAB).catch(() => []);
-  const list = rows
+  const rawList = rows
     .filter((r) => r.YouTubeId)
     .map((r) => ({
       id: r.Id, youtubeId: r.YouTubeId, target: r.Target,
       targetLabel: r.TargetLabel, title: r.Title || "", createdAt: r.CreatedAt, _row: r._row,
     }));
+  // لو حصل تكرار (أكتر من صف لنفس target — ممكن يحصل لو الحفظ اتنادى مرتين
+  // قريب من بعض)، بناخد بس أحدث واحد لكل target عشان الفيديو الصح يظهر دايمًا
+  const byTarget = new Map();
+  rawList.forEach((v) => {
+    const existing = byTarget.get(v.target);
+    if (!existing || new Date(v.createdAt || 0) >= new Date(existing.createdAt || 0)) {
+      byTarget.set(v.target, v);
+    }
+  });
+  const list = Array.from(byTarget.values());
   const headers = { "Cache-Control": "no-cache, no-store, must-revalidate" };
   if (!admin) {
     return NextResponse.json({
@@ -84,14 +94,22 @@ export async function POST(req) {
   try {
     const TAB = await ensureDemoVideosTab();
     const rows = await readSheet(TAB).catch(() => []);
-    const existing = rows.find((r) => r.Target === target);
+    const existingRows = rows.filter((r) => r.Target === target);
     const payload = {
-      Id: existing ? existing.Id : "vid_" + Date.now().toString(36),
+      Id: existingRows.length ? existingRows[0].Id : "vid_" + Date.now().toString(36),
       YouTubeId: youtubeId, Target: target, TargetLabel: targetLabel, Title: title,
       CreatedAt: new Date().toISOString(),
     };
-    if (existing) {
-      await updateRow(TAB, existing._row, payload);
+    if (existingRows.length) {
+      // نحدّث أول صف موجود، ونمسح أي نسخ مكررة زيادة لنفس الـtarget (لو حصلت
+      // بالغلط من قبل) — عشان نضمن صف واحد بس لكل target دايمًا
+      await updateRow(TAB, existingRows[0]._row, payload);
+      if (existingRows.length > 1) {
+        const extraRows = existingRows.slice(1).map((r) => r._row).sort((a, b) => b - a);
+        for (const rowNum of extraRows) {
+          await deleteRow(TAB, rowNum).catch(() => {});
+        }
+      }
     } else {
       await appendRow(TAB, payload);
     }
