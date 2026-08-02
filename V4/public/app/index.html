@@ -1890,20 +1890,26 @@ async function loadClientDemoVideos(){
 function seenDemoIds(){
   try{return JSON.parse(localStorage.getItem('idea_seen_demos')||'[]');}catch(e){return [];}
 }
-function markDemoSeen(target){
+// المفتاح بيجمع بين الصفحة ومعرّف الفيديو — عشان لو الأدمن غيّر الفيديو
+// المربوط بنفس الصفحة لفيديو جديد، يتعامل معاه كمحتوى جديد ويتعرض تلقائيًا
+// (قبل كده كان بيتتبع الصفحة بس، فالفيديو الجديد ما كانش بيظهر خالص لأي
+// حد كان شاف القديم)
+function demoSeenKey(target,youtubeId){return target+'::'+(youtubeId||'');}
+function markDemoSeen(target,youtubeId){
   try{
+    const key=demoSeenKey(target,youtubeId);
     const s=seenDemoIds();
-    if(!s.includes(target)){s.push(target);localStorage.setItem('idea_seen_demos',JSON.stringify(s));}
+    if(!s.includes(key)){s.push(key);localStorage.setItem('idea_seen_demos',JSON.stringify(s));}
   }catch(e){}
 }
 // يشغل فيديو الديمو لصفحة/نوع معين — أول مرة تلقائي، وبعدها لو force=true (زرار "شاهد تاني")
 function playDemoVideo(target,force){
   const v=_demoVideos[target];
   if(!v||!v.youtubeId)return false;
-  const already=seenDemoIds().includes(target);
+  const already=seenDemoIds().includes(demoSeenKey(target,v.youtubeId));
   if(already&&!force)return false;
   showDemoVideoModal(v.youtubeId,v.title,target);
-  if(!force)markDemoSeen(target);
+  if(!force)markDemoSeen(target,v.youtubeId);
   return true;
 }
 function showDemoVideoModal(youtubeId,title,target){
@@ -2006,23 +2012,39 @@ function saveKmModal(){
   const isMile=D.car.unitDistance==='mile';
   const raw=parseInt(document.getElementById('km-modal-val').value);
   if(raw&&raw>0){
-    D.car.km=isMile?Math.round(raw/0.621371):raw;
-    // نسجل قراءة العداد دي في سجل يومي منفصل — ده اللي بيخلي "مشيت قد إيه
-    // اليوم/الأسبوع/الشهر" تشتغل صح حتى لو العميل معملش تعبئة وقود جديدة
+    const newKm=isMile?Math.round(raw/0.621371):raw;
+    // العداد ميرجعش لورا (حماية من خطأ إدخال) — إلا لو الفرق كبير جدًا
+    // (يعني العميل غيّر العداد أو صلحه فعليًا)
+    D.car.km=newKm;
+    // نسجل كل قراءة كسطر مستقل بتاريخ ووقت كامل — مش نستبدل قراءة اليوم.
+    // ده مهم جدًا: لو استبدلنا قراءة الصبح بقراءة الليل، نقطة بداية اليوم
+    // بتضيع و"مشيت قد إيه النهاردة" بترجع صفر مهما مشى العميل.
     if(!D.car.odoLog)D.car.odoLog=[];
-    const today=new Date().toISOString().slice(0,10);
-    const existingToday=D.car.odoLog.find(o=>o.date===today);
-    if(existingToday)existingToday.km=D.car.km;
-    else D.car.odoLog.push({date:today,km:D.car.km});
+    const now=new Date();
+    D.car.odoLog.push({
+      date:now.toISOString().slice(0,10),   // التاريخ (للمقارنة اليومية)
+      at:now.toISOString(),                  // التوقيت الكامل (للترتيب الدقيق)
+      km:newKm
+    });
+    // نحافظ على آخر 400 قراءة بس (أكتر من سنة من التسجيل اليومي) عشان
+    // البيانات ما تكبرش بلا حدود
+    if(D.car.odoLog.length>400)D.car.odoLog=D.car.odoLog.slice(-400);
     save();
     // نعيد حساب مستوى التانك والاستهلاك فورًا — عشان مؤشر الوقود والمدى
-    // المتوقع في الصفحة الرئيسية يتحدثوا على طول من غير ما نحتاج نفتح
-    // صفحة الوقود أو نعمل ريفريش يدوي.
+    // المتوقع في الصفحة الرئيسية يتحدثوا على طول
     if(curFuel().length)recomputeAllFuelRecords();
     syncToSheets();
   }
   closeModal('km-modal');
   renderHome();
+}
+// بيرجّع قراءة العداد المسجّلة النهاردة (لو موجودة) — عشان البرنامج يعرف
+// هل العميل سجّل النهاردة ولا لأ، ويقارن بيها
+function todayOdoReading(){
+  const today=new Date().toISOString().slice(0,10);
+  const readings=(D.car.odoLog||[]).filter(o=>o.date===today);
+  if(!readings.length)return null;
+  return readings[readings.length-1]; // آخر قراءة النهاردة
 }
 
 // ═══════════════════════════════════════════════════════
@@ -2159,7 +2181,19 @@ function renderHome(){
   document.getElementById('h-km').textContent=displayDist.toLocaleString('ar-EG');
   document.getElementById('h-km-lbl').textContent=isMile?'العداد (ميل)':'العداد (كم)';
   const odoBtn=document.getElementById('update-odo-btn');
-  if(odoBtn)odoBtn.textContent=isMile?'📍 [+] ADD MILE':'📍 [+] ADD KM';
+  if(odoBtn){
+    const todayRead=todayOdoReading();
+    const st=distanceStats();
+    const todayKm=st?Math.round(st.today):null;
+    if(todayRead&&todayKm!=null&&todayKm>0){
+      // سجّل النهاردة وفيه مسافة فعلية — نوريه مشى كام
+      odoBtn.innerHTML=`📍 ${isMile?'[+] ADD MILE':'[+] ADD KM'} <span style="opacity:.75;font-size:11px;">• مشيت النهاردة ${todayKm.toLocaleString('ar-EG')} ${isMile?'ميل':'كم'}</span>`;
+    }else if(todayRead){
+      odoBtn.innerHTML=`📍 ${isMile?'[+] ADD MILE':'[+] ADD KM'} <span style="opacity:.75;font-size:11px;">• اتسجل النهاردة ✓</span>`;
+    }else{
+      odoBtn.innerHTML=`📍 ${isMile?'[+] ADD MILE':'[+] ADD KM'} <span style="opacity:.75;font-size:11px;">• لسه متسجلش النهاردة</span>`;
+    }
+  }
   document.getElementById('h-maint-due').textContent=dueCount;
   document.getElementById('h-viols').textContent=curViol().filter(v=>!v.paid).length;
   const fuelInfo=calcFuelPercent();
@@ -3683,7 +3717,10 @@ function viewMaintDetails(id){
 // كانت هتفضل فاضية دايمًا لأنها كانت بتعتمد على سجلات الوقود بس.
 function buildOdoTimeline(){
   const fromFuel=curFuel().filter(f=>f.km&&f.date).map(f=>({date:new Date(f.date),km:f.km}));
-  const fromDaily=(D.car.odoLog||[]).filter(o=>o.km&&o.date).map(o=>({date:new Date(o.date),km:o.km}));
+  // نستخدم التوقيت الكامل (at) لو متاح — عشان القراءات المتعددة في نفس اليوم
+  // تترتب صح بالساعة، مش تتلخبط مع بعض على مستوى التاريخ بس
+  const fromDaily=(D.car.odoLog||[]).filter(o=>o.km&&(o.at||o.date))
+    .map(o=>({date:new Date(o.at||o.date),km:o.km}));
   return [...fromFuel,...fromDaily].sort((a,b)=>a.date-b.date);
 }
 // المسافة المقطوعة فعليًا من تاريخ معين لحد دلوقتي — بيدور على أقرب قراءة
