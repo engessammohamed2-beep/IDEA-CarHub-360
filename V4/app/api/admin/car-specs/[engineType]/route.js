@@ -3,6 +3,8 @@ import { requireAdminSession } from "@/lib/auth";
 import { readSheet, updateRow, deleteRow, ensureCarSpecsTab } from "@/lib/googleSheets";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 async function findRow(tabName, engineType) {
   const rows = await readSheet(tabName);

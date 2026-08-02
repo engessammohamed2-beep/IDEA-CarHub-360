@@ -3,6 +3,8 @@ import { getClientSession } from "@/lib/auth";
 import { readSheet, appendRow, ensureSharedModelsTab } from "@/lib/googleSheets";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 // GET -> { models: { "تويوتا": ["كورولا","كامري"], ... } } aggregated from every client's saved cars
 export async function GET() {

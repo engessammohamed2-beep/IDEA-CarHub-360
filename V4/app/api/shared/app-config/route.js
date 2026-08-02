@@ -3,6 +3,8 @@ import { getClientSession, requireAdminSession } from "@/lib/auth";
 import { readSheet, updateRow, appendRow, getSheetsClient, SHEET_ID, supabaseEnabled } from "@/lib/googleSheets";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 const TAB = "AppConfig";
 const HEADERS = ["AppsScriptUrl", "UpdatedAt", "morningEnabled", "welcomeEnabled", "AppVersion", "Announcement", "AnnouncementId"];

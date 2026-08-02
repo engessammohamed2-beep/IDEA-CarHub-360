@@ -4,6 +4,8 @@ import { readSheet, appendRow, ensureLicensesTab } from "@/lib/googleSheets";
 import { generateCode, computeExpiryDate, serializePages } from "@/lib/license";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 // GET -> list all licenses (admin panel table)
 export async function GET() {

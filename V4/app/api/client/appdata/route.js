@@ -4,6 +4,8 @@ import { readSheet, appendRow, updateRow, ensureClientDataTab, ensureLicensesTab
 import { evaluateLicense } from "@/lib/license";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 async function requireValidLicense() {
   const session = await getClientSession();

@@ -3,6 +3,8 @@ import { getClientSession } from "@/lib/auth";
 import { readSheet, ensureWhatsAppMessagesTab } from "@/lib/googleSheets";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 // GET -> يرجّع سجل رسائل واتساب (كل الرسائل، أو مفلترة بكود عميل واحد عبر ?code=)
 // بيستخدمها /client/dashboard/whatsapp-messages لعرض المحادثات "live" بالـ polling.

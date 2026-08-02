@@ -3,6 +3,8 @@ import { getClientSession, requireAdminSession } from "@/lib/auth";
 import { readSheet, appendRow, deleteRow, getSheetsClient, SHEET_ID, supabaseEnabled } from "@/lib/googleSheets";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 const TAB = "MaintTypes";
 const HEADERS = ["Key", "Name", "Icon", "KmInterval", "MonthInterval", "Fields", "CreatedAt"];

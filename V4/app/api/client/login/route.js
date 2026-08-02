@@ -4,6 +4,8 @@ import { readSheet, updateRow, ensureLicensesTab } from "@/lib/googleSheets";
 import { evaluateLicense, parsePages } from "@/lib/license";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function POST(req) {
   try {

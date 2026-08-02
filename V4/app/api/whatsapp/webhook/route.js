@@ -5,6 +5,8 @@ import { getClientByPhone, getCarStatus, getLicenseStatus, getNextService, getVi
 import { sendTextMessage, sendInteractiveList, saveOdometerToSheet, setPendingAction, logMessage } from "@/lib/whatsapp";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 // -----------------------------------------------------------------------------
 // GET -> Meta webhook verification handshake

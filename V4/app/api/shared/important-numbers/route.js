@@ -4,6 +4,8 @@ import { readSheet, appendRow, deleteRow, ensureLicensesTab } from "@/lib/google
 import { getSheetsClient, SHEET_ID, supabaseEnabled } from "@/lib/googleSheets";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 const TAB = "AdminNumbers";
 const HEADERS = ["Name", "Phone", "Address", "Note"];

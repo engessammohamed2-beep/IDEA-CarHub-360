@@ -4,6 +4,8 @@ import { readSheet, ensureLicensesTab } from "@/lib/googleSheets";
 import { evaluateLicense, parsePages } from "@/lib/license";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 // Called on every app load / page change to make sure the license
 // wasn't blocked, deleted, or expired since the user last logged in.

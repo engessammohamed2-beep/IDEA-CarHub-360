@@ -9,6 +9,8 @@ import {
 import { fetchSpecsFromGemini } from "@/lib/geminiCarSpecs";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 // -----------------------------------------------------------------------------
 // منطق جلب مواصفات الصيانة (بدون أي API مواصفات سيارات خارجي — CarQuery وغيره اتلغى):

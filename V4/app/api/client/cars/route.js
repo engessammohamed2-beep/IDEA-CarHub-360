@@ -4,6 +4,8 @@ import { readSheet, ensureLicensesTab } from "@/lib/googleSheets";
 import { evaluateLicense } from "@/lib/license";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 const CARS_TAB = process.env.SHEET_TAB_CARS || "Cars";
 

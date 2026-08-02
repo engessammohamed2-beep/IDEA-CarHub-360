@@ -3,6 +3,8 @@ import { requireAdminSession } from "@/lib/auth";
 import { readSheet, ensureLicensesTab, ensureClientDataTab } from "@/lib/googleSheets";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 // GET -> list of all client-role licenses enriched with car count + last sync time.
 // Used by the "لوحة تحكم العملاء" tab inside the app's Settings screen (admin only).

@@ -3,6 +3,8 @@ import { getClientSession } from "@/lib/auth";
 import { geminiGenerate } from "@/lib/aiSettings";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 export const maxDuration = 60;
 
 // POST { code, brand, model, year } -> شرح كود العطل

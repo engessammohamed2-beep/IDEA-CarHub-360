@@ -3,6 +3,8 @@ import { requireAdminSession } from "@/lib/auth";
 import { readSheet, ensureClientDataTab } from "@/lib/googleSheets";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 // GET /api/admin/clientdata/:code -> full app data (all cars, maintenance, etc.) for one client
 export async function GET(req, { params }) {

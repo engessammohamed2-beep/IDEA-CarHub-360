@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { requireAdminSession } from "@/lib/auth";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 // GET -> بيقول للأدمن هل GEMINI_API_KEY متضبط في السيرفر ولا لأ، من غير ما يرجّع
 // قيمة المفتاح نفسه أبداً (حتى لو أدمن، المفتاح ده سري ومكانه .env بس).

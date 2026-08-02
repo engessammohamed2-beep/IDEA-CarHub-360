@@ -4,6 +4,8 @@ import { geminiGenerate } from "@/lib/aiSettings";
 import { readSheet, appendRow, updateRow, getSheetsClient, SHEET_ID, supabaseEnabled } from "@/lib/googleSheets";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 export const maxDuration = 60;
 
 const TAB = "DealerSchedules";

@@ -32,6 +32,9 @@ function extractYouTubeId(url) {
   return null;
 }
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export async function GET() {
   const admin = await requireAdminSession();
   const TAB = await ensureDemoVideosTab().catch(() => "DemoVideos");
@@ -42,13 +45,14 @@ export async function GET() {
       id: r.Id, youtubeId: r.YouTubeId, target: r.Target,
       targetLabel: r.TargetLabel, title: r.Title || "", createdAt: r.CreatedAt, _row: r._row,
     }));
+  const headers = { "Cache-Control": "no-cache, no-store, must-revalidate" };
   if (!admin) {
     return NextResponse.json({
       videos: list.map(({ _row, ...rest }) => rest),
       targets: { maintTypes: MAINT_TYPES, pages: PAGE_TARGETS },
-    });
+    }, { headers });
   }
-  return NextResponse.json({ videos: list, targets: { maintTypes: MAINT_TYPES, pages: PAGE_TARGETS } });
+  return NextResponse.json({ videos: list, targets: { maintTypes: MAINT_TYPES, pages: PAGE_TARGETS } }, { headers });
 }
 
 // POST { youtubeUrl, target, targetLabel, title } — الأدمن بيرفع الفيديو على

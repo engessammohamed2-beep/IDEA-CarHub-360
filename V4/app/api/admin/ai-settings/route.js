@@ -3,6 +3,8 @@ import { requireAdminSession } from "@/lib/auth";
 import { getAISettings, saveAISettings, geminiGenerate, defaultAISettings } from "@/lib/aiSettings";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 function maskKey(k) {
   if (!k) return "";

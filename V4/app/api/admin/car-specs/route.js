@@ -3,6 +3,8 @@ import { requireAdminSession } from "@/lib/auth";
 import { readSheet, appendRow, ensureCarSpecsTab } from "@/lib/googleSheets";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function GET() {
   const session = await requireAdminSession();

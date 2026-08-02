@@ -3,6 +3,8 @@ import { getClientSession } from "@/lib/auth";
 import { updateClientNameInLicenses } from "@/lib/google-sheets";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 // POST { name } — بيحدّث "Client Name" في تاب Licenses مباشرة، وهو المصدر
 // الموحّد اللي كل حاجة (الواتساب، التليجرام، رسالة الصباح) بتقرا الاسم منه.

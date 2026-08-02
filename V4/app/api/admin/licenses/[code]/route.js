@@ -4,6 +4,8 @@ import { readSheet, updateRow, deleteRow, ensureLicensesTab } from "@/lib/google
 import { computeExpiryDate, isExpired } from "@/lib/license";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 async function findLicenseRow(tabName, code) {
   const licenses = await readSheet(tabName);

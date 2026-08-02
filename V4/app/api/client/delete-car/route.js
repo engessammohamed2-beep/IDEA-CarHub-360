@@ -3,6 +3,8 @@ import { getClientSession } from "@/lib/auth";
 import { readSheet, deleteRow } from "@/lib/googleSheets";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 // POST { waPhone } — بيمسح صف العربية من تاب "Cars" القديم فعليًا (مش بس محليًا).
 // ده كان السبب الحقيقي وراء "حذفت العربية بس الواتساب لسه شايف بياناتها":

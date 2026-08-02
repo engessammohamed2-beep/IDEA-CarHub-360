@@ -3,6 +3,8 @@ import { getAllOptedInClients, getCarStatus, getLicenseStatus, getNextService, g
 import { sendTemplateMessage, sendTextMessage, sendButtonsMessage } from "@/lib/whatsapp";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 // أقصى مدة تنفيذ (بعض الاستضافات بتحتاج تحديد صريح لو عندك عملاء كتير)
 export const maxDuration = 60;
 

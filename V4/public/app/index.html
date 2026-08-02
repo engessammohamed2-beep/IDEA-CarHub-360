@@ -1858,7 +1858,7 @@ let _demoVideos={};      // target -> {youtubeId,title}
 let _demoVideosLoaded=false;
 async function loadClientDemoVideos(){
   try{
-    const r=await fetch('/api/admin/demo-videos',{credentials:'same-origin'});
+    const r=await fetch('/api/admin/demo-videos',{credentials:'same-origin',cache:'no-store'});
     const j=await safeJson(r);
     _demoVideos={};
     (j.videos||[]).forEach(v=>{_demoVideos[v.target]={youtubeId:v.youtubeId,title:v.title};});
@@ -5259,7 +5259,7 @@ async function loadAdminDemoVideos(){
   const sel=document.getElementById('dv-target');
   const box=document.getElementById('dv-list');
   try{
-    const r=await fetch('/api/admin/demo-videos',{credentials:'same-origin'});
+    const r=await fetch('/api/admin/demo-videos',{credentials:'same-origin',cache:'no-store'});
     const j=await safeJson(r);
     _demoVideoTargets=j.targets;
     if(sel){
