@@ -3733,14 +3733,23 @@ function kmDrivenSince(timeline,sinceDate,currentKm){
 function distanceStats(){
   const timeline=buildOdoTimeline();
   if(timeline.length<2)return null;
-  const currentKm=D.car.km||timeline[timeline.length-1].km;
+  const lastEntry=timeline[timeline.length-1];
+  // نستخدم قيمة العداد الحالية (D.car.km) كنقطة نهاية بس لو فيه قراءة
+  // فعلية اتسجلت النهاردة — وإلا بنعتمد على آخر قراءة موثوقة في الخط
+  // الزمني نفسها. ده بيمنع نسب أي مسافة تراكمت على مدار أيام لـ"اليوم"
+  // غلط، لو العميل معملش تسجيل عداد يومي فعلي.
   const now=new Date();
   const startOfToday=new Date(now.getFullYear(),now.getMonth(),now.getDate());
-  const sevenDaysAgo=new Date(now-7*86400000);
-  const thirtyDaysAgo=new Date(now-30*86400000);
-  const yearAgo=new Date(now-365*86400000);
+  const hasReadingToday=lastEntry.date>=startOfToday;
+  const currentKm=hasReadingToday?(D.car.km||lastEntry.km):lastEntry.km;
+  const referenceDate=hasReadingToday?now:lastEntry.date;
 
-  const today=kmDrivenSince(timeline,startOfToday,currentKm);
+  const sevenDaysAgo=new Date(referenceDate-7*86400000);
+  const thirtyDaysAgo=new Date(referenceDate-30*86400000);
+  const yearAgo=new Date(referenceDate-365*86400000);
+  const startOfRefDay=new Date(referenceDate.getFullYear(),referenceDate.getMonth(),referenceDate.getDate());
+
+  const today=hasReadingToday?kmDrivenSince(timeline,startOfRefDay,currentKm):0;
   const week=kmDrivenSince(timeline,sevenDaysAgo,currentKm);
   const month=kmDrivenSince(timeline,thirtyDaysAgo,currentKm);
   const year=kmDrivenSince(timeline,yearAgo,currentKm);
@@ -3752,7 +3761,7 @@ function distanceStats(){
   const totalKm=timeline[timeline.length-1].km-timeline[0].km;
   const totalDays=Math.max(1,Math.round((timeline[timeline.length-1].date-timeline[0].date)/86400000));
 
-  return {today,week,month,year,avg,totalKm,days:totalDays,
+  return {today,week,month,year,avg,totalKm,days:totalDays,hasReadingToday,
     costPerKm:(avg&&price)?(price/avg):null,
     costToday:(avg&&price)?((today/avg)*price):null,
     costMonth:(avg&&price)?((month/avg)*price):null,
@@ -4379,7 +4388,15 @@ function saveMaint(){
   const editId=parseInt(document.getElementById('mm-edit-id').value);
   if(editId){const i=D.maintenance.findIndex(x=>x.id===editId);if(i>-1){D.maintenance[i]={...D.maintenance[i],...obj};}}
   else{obj.id=Date.now();obj.carId=D.activeCarId;D.maintenance.push(obj);}
-  if(km>D.car.km)D.car.km=km;
+  if(km>D.car.km){
+    D.car.km=km;
+    // نسجل تحديث العداد ده في الخط الزمني بتاريخ الصيانة الفعلي — قبل كده
+    // كان العداد بيتحدث من غير أي أثر في odoLog، فحسبة "مشيت النهاردة"
+    // كانت ممكن تتلخبط وتنسب مسافة قديمة لتاريخ غلط.
+    if(!D.car.odoLog)D.car.odoLog=[];
+    const maintDate=obj.date?new Date(obj.date):new Date();
+    D.car.odoLog.push({date:maintDate.toISOString().slice(0,10),at:maintDate.toISOString(),km});
+  }
   save();closeModal('maint-modal');renderMaintenance();toast('✅ تم حفظ الصيانة');syncToSheets();
 }
 function deleteMaint(id){if(!confirm('مسح هذا السجل؟'))return;D.maintenance=D.maintenance.filter(m=>m.id!==id);save();renderMaintenance();toast('🗑️ تم المسح');}
@@ -4819,31 +4836,68 @@ function drawTripRoute(from,to){
 function calcTrip(){
   const dest=v('trip-to');const km=parseFloat(v('trip-km'));
   if(!dest||!km){toast('⚠️ أدخل الوجهة والمسافة');return;}
-  const avg=calcAvgConsumption()||12;const fuelPrice=curFuel()[0]?.pricePerL||11.5;
+  const avg=calcAvgConsumption()||12;
+  const lastFuel=[...curFuel()].sort((a,b)=>b.km-a.km)[0];
+  const fuelPrice=lastFuel?.pricePerL||D.car.defaultPricePerL||11.5;
   const tripKm=km*2;const litersNeeded=tripKm/avg;const fuelCost=litersNeeded*fuelPrice;
   const now=new Date();const currentKm=D.car.km;const afterKm=currentKm+km;const afterKmReturn=currentKm+tripKm;
-  // What will be due during trip
+
+  // الوقت المتوقع للرحلة — بمعدل سرعة متوسط للطرق السريعة المصرية (قابل
+  // للتعديل لو حابب تظبطه لاحقًا)، بيدي فكرة تقريبية عن مدة الرحلة
+  const avgSpeedKmh=80;
+  const tripHours=km/avgSpeedKmh;
+  const tripTimeStr=tripHours<1?Math.round(tripHours*60)+' دقيقة':
+    (Math.floor(tripHours)+' س '+Math.round((tripHours%1)*60)+' د');
+
+  // حالة التانك الحالية — هل الوقود الموجود دلوقتي كافي للرحلة كاملة، ولا
+  // محتاج تعبئة قبل أو أثناء السفر؟
+  const tank=calcFuelPercent();
+  let fuelStatusHtml='';
+  if(tank&&tank.rangeKm!=null){
+    if(tank.rangeKm>=tripKm){
+      fuelStatusHtml=`<div style="font-size:12px;background:var(--green-bg,#e7f7ee);padding:8px;border-radius:8px;margin-top:8px;color:var(--green,#21a15b);">✅ التانك الحالي (${tank.pct}%) كافي للرحلة ذهابًا وعودة (المدى المتوقع ${tank.rangeKm.toLocaleString()} كم)</div>`;
+    }else if(tank.rangeKm>=km){
+      fuelStatusHtml=`<div style="font-size:12px;background:var(--orange-bg);padding:8px;border-radius:8px;margin-top:8px;color:var(--orange);">⚠️ التانك الحالي (${tank.pct}%) كافي للوصول بس، لازم تفول قبل الرجوع</div>`;
+    }else{
+      fuelStatusHtml=`<div style="font-size:12px;background:var(--red-bg);padding:8px;border-radius:8px;margin-top:8px;color:var(--red);">🚨 التانك الحالي (${tank.pct}%) مش كافي حتى للوصول — لازم تفول قبل ما تتحرك</div>`;
+    }
+  }
+
+  // نسبة % الصيانة المتبقية عند كل عنصر (مش بس هيحتاج تغيير: نعم/لأ) —
+  // بتوضح بالظبط قد إيه قريب من موعده وقت الوصول والرجوع
   const dueGoing=[],dueReturn=[];
   curMaint().forEach(m=>{
     const info=MAINT_DB[m.type]||{name:m.type,icon:'🔧'};
-    // لو كاوتش وعنده tirePos: بين الفردة في الاسم
     const posNames2=TIRE_POS_AR;
     const displayName=m.type==='tires'&&m.tirePos?(info.name+' — '+(posNames2[m.tirePos]||m.tirePos)):info.name;
-    const kmLeft=m.kmInt?(m.km+m.kmInt)-currentKm:Infinity;
-    if(kmLeft>0&&kmLeft<=km)dueGoing.push(info.name+' '+info.icon);
-    if(kmLeft>km&&kmLeft<=tripKm)dueReturn.push(info.name+' '+info.icon);
+    if(!m.kmInt)return;
+    const totalInterval=m.kmInt;
+    const kmLeftNow=(m.km+m.kmInt)-currentKm;
+    const kmLeftAfterGoing=(m.km+m.kmInt)-afterKm;
+    const kmLeftAfterReturn=(m.km+m.kmInt)-afterKmReturn;
+    const pctAtArrival=Math.max(0,Math.min(100,Math.round((kmLeftAfterGoing/totalInterval)*100)));
+    const pctAtReturn=Math.max(0,Math.min(100,Math.round((kmLeftAfterReturn/totalInterval)*100)));
+    if(kmLeftNow>0&&kmLeftNow<=km){
+      dueGoing.push(`${displayName} ${info.icon} (${pctAtArrival}% متبقي عند الوصول)`);
+    }else if(kmLeftNow>km&&kmLeftNow<=tripKm){
+      dueReturn.push(`${displayName} ${info.icon} (${pctAtReturn}% متبقي عند الرجوع)`);
+    }
   });
+
   let html=`<div class="trip-result-card">
     <div style="font-size:16px;font-weight:800;margin-bottom:12px;">🗺️ رحلة إلى ${dest}</div>
     <div class="grid-2" style="gap:10px;margin-bottom:12px;">
       <div class="stat"><div class="stat-val">${km.toLocaleString()} كم</div><div class="stat-lbl">مسافة ذهاب</div></div>
       <div class="stat"><div class="stat-val">${tripKm.toLocaleString()} كم</div><div class="stat-lbl">إجمالي ذهاب+عودة</div></div>
+      <div class="stat"><div class="stat-val">${tripTimeStr}</div><div class="stat-lbl">⏱️ الوقت المتوقع (ذهاب)</div></div>
       <div class="stat"><div class="stat-val ok">${litersNeeded.toFixed(1)} لتر</div><div class="stat-lbl">وقود الرحلة</div></div>
       <div class="stat"><div class="stat-val warn">${Math.round(fuelCost).toLocaleString()} ج</div><div class="stat-lbl">تكلفة الوقود</div></div>
     </div>
-    <div style="font-size:12px;color:var(--txt2);margin-bottom:8px;">العداد بعد الوصول: <strong>${afterKm.toLocaleString()} كم</strong> | بعد العودة: <strong>${afterKmReturn.toLocaleString()} كم</strong></div>`;
-  if(dueGoing.length)html+=`<div style="font-size:12px;background:var(--red-bg);padding:8px;border-radius:8px;margin-top:8px;color:var(--red);"><strong>🚨 تحتاج تغيير قبل السفر:</strong> ${dueGoing.join(' • ')}</div>`;
-  if(dueReturn.length)html+=`<div style="font-size:12px;background:var(--orange-bg);padding:8px;border-radius:8px;margin-top:6px;color:var(--orange);"><strong>⚠️ ستحتاج تغيير أثناء أو بعد العودة:</strong> ${dueReturn.join(' • ')}</div>`;
+    <div style="font-size:12px;color:var(--txt2);margin-bottom:8px;">العداد بعد الوصول: <strong>${afterKm.toLocaleString()} كم</strong> | بعد العودة: <strong>${afterKmReturn.toLocaleString()} كم</strong></div>
+    ${fuelStatusHtml}`;
+  if(dueGoing.length)html+=`<div style="font-size:12px;background:var(--red-bg);padding:8px;border-radius:8px;margin-top:8px;color:var(--red);"><strong>🚨 تحتاج تغيير قبل السفر:</strong><br>${dueGoing.join('<br>')}</div>`;
+  if(dueReturn.length)html+=`<div style="font-size:12px;background:var(--orange-bg);padding:8px;border-radius:8px;margin-top:6px;color:var(--orange);"><strong>⚠️ ستحتاج تغيير أثناء أو بعد العودة:</strong><br>${dueReturn.join('<br>')}</div>`;
+  html+=`<div style="font-size:10px;color:var(--txt3);margin-top:10px;">⏱️ الوقت التقديري بمعدل ${avgSpeedKmh} كم/س (متوسط طرق سريعة) — بيختلف حسب الزحمة والمحطات.</div>`;
   html+='</div>';
   document.getElementById('trip-result').innerHTML=html;
 }
@@ -6359,8 +6413,14 @@ async function pullBotUpdates(){
       const data=await safeJson(res);
       if(data&&data.km&&Number(data.km)>Number(car.km||0)){
         car.km=Number(data.km);
+        // نستخدم تاريخ القراءة الفعلي اللي بعته العميل (مش وقت المزامنة
+        // دلوقتي) — ده الإصلاح الجذري: لو العميل بعت رقم من 3 أيام ولسه
+        // معلّق، هيتسجل بتاريخه الحقيقي مش وكأنه حصل النهاردة.
+        if(!car.odoLog)car.odoLog=[];
+        const readingDate=data.at?new Date(data.at):new Date();
+        car.odoLog.push({date:readingDate.toISOString().slice(0,10),at:readingDate.toISOString(),km:car.km});
         save();
-        if(D.activeCarId===car.id)renderHome();
+        if(D.activeCarId===car.id){recomputeAllFuelRecords();renderHome();}
         toast(`📍 اتسجلت قراءة عداد جديدة من البوت للعربية: ${data.km} كم`);
       }
     }catch(e){}
@@ -6559,16 +6619,12 @@ async function ideaBootstrap(){
   }).catch(()=>{});
   loadAppConfigExtras(); // الفيرجن + رسالة الإعلان (مرة واحدة لكل عميل)
   await loadClientDemoVideos();
-  // ترقية تلقائية للبيانات القديمة (لعملاء كانوا بيستخدموا البرنامج قبل
-  // إصلاحات الوقود/المؤشر) — بنضيف نقطة بداية في odoLog لو مش موجودة،
-  // وبنعيد حساب كل سجلات الوقود عشان المؤشر والمسافة يبقوا صح من أول تحميل
-  (D.cars||[]).forEach(car=>{
-    if(!car.odoLog||!car.odoLog.length){
-      if(car.km){
-        car.odoLog=[{date:new Date().toISOString().slice(0,10),km:car.km}];
-      }
-    }
-  });
+  // ملحوظة: أزلنا خطوة "الترقية التلقائية" اللي كانت بتضيف نقطة odoLog
+  // بتاريخ "النهاردة" لو السجل فاضي — دي كانت بتتسبب في حساب مسافات قديمة
+  // وكأنها حصلت النهاردة بالظبط، لأنها ماكانتش بتعرف التاريخ الحقيقي للقراءة
+  // القديمة. الخط الزمني دلوقتي بيعتمد بس على تواريخ حقيقية موثوقة: سجلات
+  // الوقود (ليها تاريخ فعلي) وقراءات odoLog الجديدة (بتاريخ ووقت التسجيل
+  // الفعلي، مش تخمين).
   if(curFuel().length)recomputeAllFuelRecords();
   save();
   nav('home');
