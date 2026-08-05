@@ -20,6 +20,7 @@ export async function POST(req) {
 
   try {
     const carsTab = process.env.SHEET_TAB_CARS || "Cars";
+    const usersTab = process.env.SHEET_TAB_USERS || "Users";
     const rows = await readSheet(carsTab).catch(() => []);
     const t9 = (x) => {
       const n = String(x || "").replace(/[^0-9]/g, "");
@@ -27,13 +28,26 @@ export async function POST(req) {
     };
     const targetTail = t9(waPhone);
 
-    // نمسح كل الصفوف اللي بتاعت نفس رقم الواتساب (ممكن يكون فيه أكتر من صف
-    // قديم بنفس الرقم)، وكمان أي صف بتاع chatId التليجرام المرتبط بالكود ده
+    // نجيب كل الـ chatId المرتبطة بكود الترخيص الحالي عن طريق تاب Users —
+    // ده الإصلاح الحقيقي: قبل كده كانت المقارنة r.chatId === session.code
+    // بتقارن حاجتين شكلهم مختلف تمامًا (chatId زي "wa:2010..." مقابل كود
+    // زي "IDEA_4120096")، فمكانتش بتتطابق أبدًا. ده كان بيمنع مسح أي
+    // عربية تجريبية اتسجلت من غير رقم واتساب مربوط خالص.
+    const linkedChatIds = new Set();
+    if (session.code) {
+      const userRows = await readSheet(usersTab).catch(() => []);
+      userRows.forEach((u) => {
+        if (u.code === session.code && u.chatId) linkedChatIds.add(String(u.chatId));
+      });
+    }
+
+    // نمسح كل الصفوف اللي بتاعت نفس رقم الواتساب، أو أي chatId مرتبط بنفس
+    // كود الترخيص الحالي (يغطي الحالة اللي مفيش فيها waPhone مسجل خالص)
     const toDelete = rows.filter((r) => {
       const rPhone = t9(r.waPhone || "");
       const isPhoneMatch = targetTail && rPhone === targetTail;
-      const isCodeMatch = session.code && r.chatId === session.code;
-      return isPhoneMatch || isCodeMatch;
+      const isLinkedChatId = r.chatId && linkedChatIds.has(String(r.chatId));
+      return isPhoneMatch || isLinkedChatId;
     });
 
     // نمسح بترتيب عكسي (من الأسفل للأعلى) عشان أرقام الصفوف متتزحلقش
