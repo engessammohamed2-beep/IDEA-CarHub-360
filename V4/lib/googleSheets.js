@@ -422,6 +422,41 @@ async function _g_ensureWhatsAppMessagesTab() {
   return tabName;
 }
 
+// تاب Users — نفس التاب اللي الأسكربت (Google Apps Script) بيستخدمه لربط
+// chatId (تليجرام أو واتساب) بكود الترخيص. بنستخدم نفس التاب هنا عشان
+// نتجنب تكرار البيانات في مكانين، ولو حد فتح البوت من التليجرام برضه
+// (مش بس الواتساب اللي بيشتغل من قبل كده)، بيتسجل في نفس المكان الموحّد.
+async function _g_ensureUsersTab() {
+  const sheets = getSheetsClient();
+  const tabName = process.env.SHEET_TAB_USERS || "Users";
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID() });
+  const exists = meta.data.sheets.some((s) => s.properties.title === tabName);
+
+  if (!exists) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: SHEET_ID(),
+      requestBody: { requests: [{ addSheet: { properties: { title: tabName } } }] },
+    });
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID(),
+      range: `${tabName}!A1:E1`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: [["chatId", "code", "ownerName", "linkedAt", "waPhone"]],
+      },
+    });
+  }
+  return tabName;
+}
+export async function ensureUsersTab() {
+  if (!supabaseEnabled()) return _g_ensureUsersTab();
+  try { return await _g_ensureUsersTab(); } catch (e) {
+    console.warn("ensure tab backup failed:", e.message);
+    return "Users";
+  }
+}
+
+
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  SUPABASE PRIMARY + GOOGLE SHEETS BACKUP

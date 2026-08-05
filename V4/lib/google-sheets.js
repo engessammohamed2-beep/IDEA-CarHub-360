@@ -1,4 +1,4 @@
-import { readSheet, googleReadSheet, updateRow, appendRow, deleteRow, ensureClientDataTab, ensureLicensesTab } from "@/lib/googleSheets";
+import { readSheet, googleReadSheet, updateRow, appendRow, deleteRow, ensureClientDataTab, ensureLicensesTab, ensureUsersTab } from "@/lib/googleSheets";
 
 // -----------------------------------------------------------------------------
 // IDEA CarHub 360 — طبقة قراءة بيانات العملاء لصالح تكامل واتساب
@@ -214,6 +214,64 @@ export async function saveFuelRecordToClientData(code, carId, fuelRecord) {
   } catch (e) {
     return { ok: false, error: e.message };
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// ربط تليجرام بكود الترخيص — بيستخدم نفس تاب Users اللي الأسكربت (Apps
+// Script) بيستخدمه، عشان مايبقاش عندنا مكانين مختلفين لنفس البيانات.
+// ─────────────────────────────────────────────────────────────────────────
+
+// بيربط chatId بكود ترخيص (من /start CODE)، وبيجيب رقم الواتساب المرتبط
+// بنفس الكود من Licenses عشان نقدر نستخدم getClientByPhone الموجودة
+// ومُختبرة بالفعل، بدل ما نكرر منطق قراءة ClientData من الصفر.
+export async function linkTelegramChatToCode(chatId, code) {
+  const [usersTab, licensesTab] = await Promise.all([ensureUsersTab(), ensureLicensesTab()]);
+  const [userRows, licenseRows] = await Promise.all([readSheet(usersTab), readSheet(licensesTab)]);
+
+  const licenseRow = licenseRows.find((l) => String(l.Code || "").trim() === String(code).trim());
+  if (!licenseRow) return { ok: false, error: "الكود ده مش موجود" };
+
+  const waPhone = normalizePhone(licenseRow.Phone || "");
+  const ownerName = (licenseRow["Client Name"] || "").trim();
+
+  const existing = userRows.find((u) => String(u.chatId) === String(chatId));
+  const payload = {
+    chatId: String(chatId),
+    code: String(code).trim(),
+    ownerName,
+    linkedAt: new Date().toISOString(),
+    waPhone,
+  };
+  if (existing) {
+    await updateRow(usersTab, existing._row, payload);
+  } else {
+    await appendRow(usersTab, payload);
+  }
+  return { ok: true, waPhone, ownerName, code: String(code).trim() };
+}
+
+// بيترجم chatId (تليجرام) لرقم واتساب مرتبط بيه، عن طريق تاب Users — عشان
+// نقدر نستخدم getClientByPhone (اللي أصلاً بتشتغل بالرقم) بدل ما نكتب
+// نسخة تانية موازية بتشتغل بالـ chatId.
+export async function resolveWaPhoneFromTelegramChatId(chatId) {
+  const usersTab = await ensureUsersTab();
+  const userRows = await readSheet(usersTab);
+  const row = userRows.find((u) => String(u.chatId) === String(chatId));
+  if (!row || !row.waPhone) return null;
+  return row.waPhone;
+}
+
+// بيتأكد إن الـchatId ده مرتبط بكود ترخيص لسه موجود وصالح في Licenses —
+// نفس فحص "أحمد الشبح" اللي بنيناه في الأسكربت، بس هنا بيتفحص من ClientData
+// مباشرة عن طريق وجود صف فعلي في Licenses بنفس الكود.
+export async function hasValidTelegramLicense(chatId) {
+  const usersTab = await ensureUsersTab();
+  const userRows = await readSheet(usersTab);
+  const row = userRows.find((u) => String(u.chatId) === String(chatId));
+  if (!row || !row.code) return true; // مش معروف — نسيبه يعدي (تحوّط زي الأسكربت بالظبط)
+  const licensesTab = await ensureLicensesTab();
+  const licenseRows = await readSheet(licensesTab);
+  return licenseRows.some((l) => String(l.Code || "").trim() === String(row.code).trim());
 }
 
 export async function getClientByPhone(phone) {
