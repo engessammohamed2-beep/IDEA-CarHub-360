@@ -79,6 +79,17 @@ function buildMorningText(client) {
 async function sendMorningMessageToClient(client) {
   const text = buildMorningText(client);
 
+  // نبعت لتليجرام كمان لو العميل مربوط بيه (بغض النظر عن نتيجة الواتساب) —
+  // القناتين مستقلتين عن بعض تمامًا، فلو حد فشل ميوقفش التاني
+  if (client.tgChatId) {
+    try {
+      const { sendTelegramMessage, mainKeyboard } = await import("@/lib/telegram");
+      await sendTelegramMessage(client.tgChatId, text, mainKeyboard());
+    } catch (e) {
+      console.warn("sendMorningMessageToClient: فشل إرسال تليجرام:", e.message);
+    }
+  }
+
   // نحاول الـ Template الأول (المطلوب فعليًا لو أكتر من 24 ساعة من آخر رسالة من
   // العميل). لو فشل (لسه مش متوافق عليه من Meta، أو مش موجود أصلاً)، نرجع لرسالة
   // نصية + أزرار عادية كـ fallback عشان الخدمة تفضل شغالة.
@@ -128,8 +139,10 @@ async function handleMorningBroadcast(req) {
   // (Google Apps Script) هو المسؤول عن رسالة الصبح الوحيدة (بيبعتها على
   // واتساب وتليجرام مع بعض ومعاها الدعاء). المسار ده كان بيعمل رسالة صبح
   // تانية منفصلة، فالعميل كان بياخد رسالتين كل يوم. لو حابب ترجع تفعّله
-  // بدل الأسكربت مستقبلًا، حط MORNING_MESSAGE_ENABLED=true في .env.
-  const globalEnabled = String(process.env.MORNING_MESSAGE_ENABLED || "false").toLowerCase() === "true";
+  // Vercel هو المصدر الوحيد لرسالة الصبح دلوقتي (بعد نقل تليجرام هنا كمان) —
+  // الافتراضي بقى "مفعّل". لو حابب توقفه لأي سبب، حط
+  // MORNING_MESSAGE_ENABLED=false في .env.
+  const globalEnabled = String(process.env.MORNING_MESSAGE_ENABLED || "true").toLowerCase() !== "false";
   if (!globalEnabled) {
     return NextResponse.json({ ok: true, skipped: "الرسالة اليومية بتتبعت من الأسكربت بس دلوقتي (Vercel معطّل افتراضيًا)" });
   }

@@ -3897,22 +3897,21 @@ async function loadAppConfigExtras(){
 // ─── رسالة ترحيب داخل التطبيق عند تسجيل بيانات عربية لأول مرة ───
 // يبعت رسالة ترحيب فعلية على واتساب/تليجرام (عن طريق الأسكربت) بعد أول تسجيل عربية
 function sendWelcomeToBots(){
-  const url=D.settings.appsScriptUrl||window._centralAppsScriptUrl;
-  if(!url)return;
   const c=D.car;
-  let chatId=c.tgChatId;
   const waP=normalizeIntlPhone(c.waPhone||c.ownerPhone||'');
-  if(!chatId&&waP)chatId='wa:'+waP;
-  if(!chatId&&!waP)return; // مفيش أي وسيلة تواصل متسجلة لسه
+  const tgChatId=c.tgChatId||'';
+  if(!waP&&!tgChatId)return; // مفيش أي وسيلة تواصل متسجلة لسه
   const payload={
-    action:'sendWelcome',
-    chatId,
     waPhone:waP,
-    owner:c.owner||'',
-    car:{brand:c.brand,model:c.model,year:c.year}
+    tgChatId,
+    ownerName:c.owner||'',
+    brand:c.brand||'',
+    model:c.model||'',
+    year:c.year||'',
   };
   try{
-    fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)}).catch(()=>{});
+    fetch('/api/client/send-welcome',{method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});
   }catch(e){}
 }
 
@@ -4844,7 +4843,7 @@ function calcTrip(){
 
   // الوقت المتوقع للرحلة — بمعدل سرعة متوسط للطرق السريعة المصرية (قابل
   // للتعديل لو حابب تظبطه لاحقًا)، بيدي فكرة تقريبية عن مدة الرحلة
-  const avgSpeedKmh=80;
+  const avgSpeedKmh=100;
   const tripHours=km/avgSpeedKmh;
   const tripTimeStr=tripHours<1?Math.round(tripHours*60)+' دقيقة':
     (Math.floor(tripHours)+' س '+Math.round((tripHours%1)*60)+' د');
@@ -4877,10 +4876,12 @@ function calcTrip(){
     const kmLeftAfterReturn=(m.km+m.kmInt)-afterKmReturn;
     const pctAtArrival=Math.max(0,Math.min(100,Math.round((kmLeftAfterGoing/totalInterval)*100)));
     const pctAtReturn=Math.max(0,Math.min(100,Math.round((kmLeftAfterReturn/totalInterval)*100)));
+    // رسالة واضحة تحدد بالظبط هيخلص فين — أثناء الذهاب ولا أثناء العودة —
+    // بدل ما نسيب العميل يفسر النسبة بنفسه. بتنطبق على أي نوع صيانة.
     if(kmLeftNow>0&&kmLeftNow<=km){
-      dueGoing.push(`${displayName} ${info.icon} (${pctAtArrival}% متبقي عند الوصول)`);
+      dueGoing.push(`⚠️ خلي بالك: ${displayName} ${info.icon} هيخلص معادك أثناء الذهاب (متبقي دلوقتي ${kmLeftNow.toLocaleString()} كم بس، والرحلة ${km.toLocaleString()} كم)`);
     }else if(kmLeftNow>km&&kmLeftNow<=tripKm){
-      dueReturn.push(`${displayName} ${info.icon} (${pctAtReturn}% متبقي عند الرجوع)`);
+      dueReturn.push(`⚠️ خلي بالك: ${displayName} ${info.icon} هيخلص معادك أثناء العودة (متبقي دلوقتي ${kmLeftNow.toLocaleString()} كم، والرحلة كاملة ${tripKm.toLocaleString()} كم)`);
     }
   });
 
@@ -6333,12 +6334,10 @@ function updateCarTelegramUI(){
   statusEls.forEach(el=>el.innerHTML=html);
 }
 async function linkCarTelegram(){
-  const url=D.settings.appsScriptUrl;
-  if(!url){toast('⚠️ لازم الأدمن يحط رابط سيرفر الربط الأول من "إعدادات متقدمة"');return;}
   const code=getOrCreateCarTgCode();
   document.querySelectorAll('.idea-tg-status').forEach(el=>el.textContent='⏳ بنتأكد...');
   try{
-    const res=await fetch(`${url}?action=checklink&code=${code}`);
+    const res=await fetch(`/api/telegram/checklink?code=${encodeURIComponent(code)}`,{credentials:'same-origin',cache:'no-store'});
     const data=await safeJson(res);
     if(data&&data.chatId){
       D.car.tgChatId=data.chatId;
@@ -6351,7 +6350,7 @@ async function linkCarTelegram(){
       toast('⚠️ لسه ماعملتش start على البوت. دوس "افتح البوت وابدأ" الأول');
     }
   }catch(e){
-    document.querySelectorAll('.idea-tg-status').forEach(el=>el.innerHTML=`<span style="color:var(--red);">تعذر الاتصال بالسيرفر. تأكد من الرابط.</span>`);
+    document.querySelectorAll('.idea-tg-status').forEach(el=>el.innerHTML=`<span style="color:var(--red);">تعذر الاتصال بالسيرفر. حاول تاني.</span>`);
   }
 }
 

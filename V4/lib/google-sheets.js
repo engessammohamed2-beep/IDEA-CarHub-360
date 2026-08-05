@@ -333,6 +333,17 @@ export async function getClientByPhone(phone) {
     const { row, data, cars, matchedCar } = best;
 
     const resolvedName = resolveClientName(licenseRows, row.Code, targetPhone, matchedCar.owner);
+
+    // بوابة صلاحية الترخيص: لو الكود ده اتمسح من Licenses (زي ما حصل مع
+    // حسام)، منرجعش بياناته خالص — حتى لو لسه موجودة في ClientData. ده كان
+    // الفحص الناقص اللي كان بيخلي عملاء محذوفين يفضلوا ياخدوا ردود كاملة
+    // من الواتساب/تليجرام رغم إن ترخيصهم اتلغى.
+    const licenseStillValid = licenseRows.some((l) => String(l.Code || "").trim() === String(row.Code).trim());
+    if (!licenseStillValid) {
+      console.log("[getClientByPhone] الكود", row.Code, "مالوش ترخيص صالح في Licenses — برجّع null بدل بياناته");
+      return null;
+    }
+
     console.log(
       "[getClientByPhone] اخترنا Code:", row.Code,
       "| owner المخزن في العربية:", matchedCar.owner,
@@ -476,8 +487,23 @@ export async function getClientByPhone(phone) {
  * عشان نقدر نستخدم نفس getCarStatus/getLicenseStatus/getViolationsStatus عليه.
  */
 export async function getAllOptedInClients() {
-  const [clientDataTab, licensesTab] = await Promise.all([ensureClientDataTab(), ensureLicensesTab()]);
-  const [clientRows, licenseRows] = await Promise.all([readSheet(clientDataTab), readSheet(licensesTab)]);
+  const [clientDataTab, licensesTab, usersTab] = await Promise.all([
+    ensureClientDataTab(), ensureLicensesTab(), ensureUsersTab(),
+  ]);
+  const [clientRows, licenseRows, userRows] = await Promise.all([
+    readSheet(clientDataTab), readSheet(licensesTab), readSheet(usersTab),
+  ]);
+
+  // خريطة سريعة: كود الترخيص → chatId تليجرام (لو مربوط)، عشان نقدر نبعت
+  // رسالة الصبح لتليجرام كمان مش الواتساب بس
+  const telegramChatIdByCode = {};
+  userRows.forEach((u) => {
+    if (u.code && u.chatId && String(u.chatId).indexOf("wa:") !== 0) {
+      telegramChatIdByCode[String(u.code).trim()] = String(u.chatId);
+    }
+  });
+
+  const validLicenseCodes = new Set(licenseRows.map((l) => String(l.Code || "").trim()).filter(Boolean));
 
   const result = [];
 
@@ -490,12 +516,17 @@ export async function getAllOptedInClients() {
       continue;
     }
 
+    // بوابة صلاحية الترخيص: لو الكود ده اتمسح من Licenses، منبعتش رسالة
+    // صبح خالص — نفس فحص "أحمد الشبح" اللي كان لازم يتطبق هنا من الأول
+    if (!validLicenseCodes.has(String(row.Code || "").trim())) continue;
+
     const cars = Array.isArray(data.cars) ? data.cars : [];
     const morningEnabled = data.settings?.morningMessageEnabled !== false; // افتراضي: مفعّل
 
     if (!morningEnabled) continue;
 
     const license = licenseRows.find((l) => l.Code === row.Code);
+    const tgChatId = telegramChatIdByCode[String(row.Code).trim()] || null;
 
     for (const car of cars) {
       if (!car.waPhone) continue; // العربية دي مش مربوطة بواتساب
@@ -503,6 +534,7 @@ export async function getAllOptedInClients() {
         code: row.Code,
         name: resolveClientName(licenseRows, row.Code, car.waPhone, car.owner),
         phone: car.waPhone,
+        tgChatId,
         car,
         carId: car.id,
         allCars: cars,
