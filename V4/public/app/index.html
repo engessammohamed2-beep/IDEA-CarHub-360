@@ -4862,28 +4862,68 @@ function calcTrip(){
     }
   }
 
-  // نسبة % الصيانة المتبقية عند كل عنصر (مش بس هيحتاج تغيير: نعم/لأ) —
-  // بتوضح بالظبط قد إيه قريب من موعده وقت الوصول والرجوع
-  const dueGoing=[],dueReturn=[];
+  // جدول شامل بكل الصيانات المسجّلة (مش بس اللي هتخلص) — نظام ألوان
+  // أخضر (سليم) / أصفر (قريب من الموعد) / أحمر (هيخلص أثناء الرحلة دي)،
+  // لكل صيانة في حالتين: عند الوصول وعند الرجوع
+  const maintRows=[];
+  let anyDueDuringTrip=false;
   curMaint().forEach(m=>{
     const info=MAINT_DB[m.type]||{name:m.type,icon:'🔧'};
     const posNames2=TIRE_POS_AR;
     const displayName=m.type==='tires'&&m.tirePos?(info.name+' — '+(posNames2[m.tirePos]||m.tirePos)):info.name;
-    if(!m.kmInt)return;
+    if(!m.kmInt)return; // مفيش دورية كيلومترات متسجلة لهذه الصيانة، منقدرش نحسبلها حالة
     const totalInterval=m.kmInt;
-    const kmLeftNow=(m.km+m.kmInt)-currentKm;
     const kmLeftAfterGoing=(m.km+m.kmInt)-afterKm;
     const kmLeftAfterReturn=(m.km+m.kmInt)-afterKmReturn;
-    const pctAtArrival=Math.max(0,Math.min(100,Math.round((kmLeftAfterGoing/totalInterval)*100)));
-    const pctAtReturn=Math.max(0,Math.min(100,Math.round((kmLeftAfterReturn/totalInterval)*100)));
-    // رسالة واضحة تحدد بالظبط هيخلص فين — أثناء الذهاب ولا أثناء العودة —
-    // بدل ما نسيب العميل يفسر النسبة بنفسه. بتنطبق على أي نوع صيانة.
-    if(kmLeftNow>0&&kmLeftNow<=km){
-      dueGoing.push(`⚠️ خلي بالك: ${displayName} ${info.icon} هيخلص معادك أثناء الذهاب (متبقي دلوقتي ${kmLeftNow.toLocaleString()} كم بس، والرحلة ${km.toLocaleString()} كم)`);
-    }else if(kmLeftNow>km&&kmLeftNow<=tripKm){
-      dueReturn.push(`⚠️ خلي بالك: ${displayName} ${info.icon} هيخلص معادك أثناء العودة (متبقي دلوقتي ${kmLeftNow.toLocaleString()} كم، والرحلة كاملة ${tripKm.toLocaleString()} كم)`);
-    }
+
+    // نحدد الحالة (أخضر/أصفر/أحمر) بناءً على نسبة العمر المتبقي من الفترة
+    // الدورية: أحمر = هيخلص أو خلص خلال الرحلة، أصفر = هيوصل قريب من
+    // النهاية (أقل من 15% من الدورة متبقي)، أخضر = مطمّن
+    const statusOf=(kmLeft)=>{
+      if(kmLeft<=0)return {color:'red',label:'هيكون خلص 🔴'};
+      const pct=(kmLeft/totalInterval)*100;
+      if(pct<=15)return {color:'orange',label:'قريب من الموعد 🟡'};
+      return {color:'green',label:'سليم 🟢'};
+    };
+    const goingStatus=statusOf(kmLeftAfterGoing);
+    const returnStatus=statusOf(kmLeftAfterReturn);
+    if(goingStatus.color==='red'||returnStatus.color==='red')anyDueDuringTrip=true;
+
+    maintRows.push({displayName,icon:info.icon,goingStatus,returnStatus,kmLeftAfterGoing,kmLeftAfterReturn});
   });
+
+  const colorVar=(c)=>c==='red'?'var(--red)':c==='orange'?'var(--orange)':'var(--green,#21a15b)';
+  const colorBg=(c)=>c==='red'?'var(--red-bg)':c==='orange'?'var(--orange-bg)':'var(--green-bg,#e7f7ee)';
+
+  let maintTableHtml='';
+  if(maintRows.length){
+    maintTableHtml=`<div style="margin-top:14px;">
+      <div style="font-size:13px;font-weight:800;margin-bottom:8px;">🔧 حالة الصيانات أثناء الرحلة</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead><tr style="border-bottom:1px solid var(--border);">
+          <th style="text-align:right;padding:6px 4px;">الصيانة</th>
+          <th style="text-align:center;padding:6px 4px;">عند الوصول</th>
+          <th style="text-align:center;padding:6px 4px;">عند الرجوع</th>
+        </tr></thead>
+        <tbody>`;
+    maintRows.forEach(r=>{
+      maintTableHtml+=`<tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:6px 4px;">${r.icon} ${r.displayName}</td>
+        <td style="text-align:center;padding:6px 4px;"><span style="background:${colorBg(r.goingStatus.color)};color:${colorVar(r.goingStatus.color)};padding:2px 8px;border-radius:6px;font-weight:700;">${r.goingStatus.label}</span></td>
+        <td style="text-align:center;padding:6px 4px;"><span style="background:${colorBg(r.returnStatus.color)};color:${colorVar(r.returnStatus.color)};padding:2px 8px;border-radius:6px;font-weight:700;">${r.returnStatus.label}</span></td>
+      </tr>`;
+    });
+    maintTableHtml+=`</tbody></table>`;
+    // جملة الخلاصة — طمأنة لو كله سليم، أو تحذير واضح لو في حاجة هتخلص
+    if(anyDueDuringTrip){
+      maintTableHtml+=`<div style="font-size:13px;background:var(--red-bg);color:var(--red);padding:10px;border-radius:8px;margin-top:8px;font-weight:700;">
+        🚨 خلي بالك: في صيانة (أو أكتر) هتخلص أثناء الرحلة دي — لازم تتعمل قبل السفر، أو تاخد معاك احتياطي/تتصرف وانت هناك لو خلصت في نص الطريق.</div>`;
+    }else{
+      maintTableHtml+=`<div style="font-size:13px;background:var(--green-bg,#e7f7ee);color:var(--green,#21a15b);padding:10px;border-radius:8px;margin-top:8px;font-weight:700;">
+        ✅ أنت في الأمان — كل الصيانات المسجّلة سليمة طول الرحلة ذهابًا وعودة. سفرة سعيدة! 🚗💨</div>`;
+    }
+    maintTableHtml+='</div>';
+  }
 
   let html=`<div class="trip-result-card">
     <div style="font-size:16px;font-weight:800;margin-bottom:12px;">🗺️ رحلة إلى ${dest}</div>
@@ -4895,9 +4935,8 @@ function calcTrip(){
       <div class="stat"><div class="stat-val warn">${Math.round(fuelCost).toLocaleString()} ج</div><div class="stat-lbl">تكلفة الوقود</div></div>
     </div>
     <div style="font-size:12px;color:var(--txt2);margin-bottom:8px;">العداد بعد الوصول: <strong>${afterKm.toLocaleString()} كم</strong> | بعد العودة: <strong>${afterKmReturn.toLocaleString()} كم</strong></div>
-    ${fuelStatusHtml}`;
-  if(dueGoing.length)html+=`<div style="font-size:12px;background:var(--red-bg);padding:8px;border-radius:8px;margin-top:8px;color:var(--red);"><strong>🚨 تحتاج تغيير قبل السفر:</strong><br>${dueGoing.join('<br>')}</div>`;
-  if(dueReturn.length)html+=`<div style="font-size:12px;background:var(--orange-bg);padding:8px;border-radius:8px;margin-top:6px;color:var(--orange);"><strong>⚠️ ستحتاج تغيير أثناء أو بعد العودة:</strong><br>${dueReturn.join('<br>')}</div>`;
+    ${fuelStatusHtml}
+    ${maintTableHtml}`;
   html+=`<div style="font-size:10px;color:var(--txt3);margin-top:10px;">⏱️ الوقت التقديري بمعدل ${avgSpeedKmh} كم/س (متوسط طرق سريعة) — بيختلف حسب الزحمة والمحطات.</div>`;
   html+='</div>';
   document.getElementById('trip-result').innerHTML=html;
@@ -5639,6 +5678,15 @@ function adminAISettingsHtml(){
         <span class="dealer-switch-slider"></span>
       </label>
     </div>
+    <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px;">
+      <div class="setting-name" style="margin-bottom:4px;">🧪 تجربة إرسال رسالة الصباح</div>
+      <div class="setting-desc" style="margin-bottom:10px;">بتبعت رسالة الصباح فعليًا دلوقتي (واتساب + تليجرام) — مفيدة تتأكد إن كل حاجة شغالة قبل ما تستنى الميعاد اليومي.</div>
+      <div style="display:flex;gap:8px;margin-bottom:8px;">
+        <button type="button" class="btn btn-secondary btn-sm" style="flex:1;" onclick="testSendMorningMessage('admin')">🧪 جرب على نفسي (الأدمن) بس</button>
+        <button type="button" class="btn btn-danger btn-sm" style="flex:1;" onclick="testSendMorningMessage('all')">📢 ابعت لكل العملاء دلوقتي</button>
+      </div>
+      <div id="morning-test-status" style="font-size:12px;"></div>
+    </div>
   </div>
   <div class="card" style="margin-bottom:14px;">
     <div class="card-title">📣 نسخة البرنامج ورسالة الإعلان</div>
@@ -5676,6 +5724,23 @@ async function setAdminNotifSetting(key,val){
     const r=await fetch('/api/shared/app-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({[key]:val?'true':'false'})});
     toast(r.ok?(val?'✅ تم التشغيل':'🔕 تم الإيقاف'):'❌ تعذر الحفظ');
   }catch(e){toast('❌ '+e.message);}
+}
+// بيبعت رسالة الصباح فعليًا دلوقتي (واتساب + تليجرام) — إما للأدمن بس
+// (تجربة آمنة)، أو لكل العملاء (بث حقيقي، محتاج تأكيد قبل الإرسال)
+async function testSendMorningMessage(target){
+  const statusEl=document.getElementById('morning-test-status');
+  if(target==='all'){
+    if(!confirm('⚠️ ده هيبعت رسالة الصباح فعليًا لكل العملاء دلوقتي (مش تجربة). متأكد؟'))return;
+  }
+  statusEl.innerHTML='<span style="color:var(--txt3);">⏳ بيتبعت...</span>';
+  try{
+    const r=await fetch(`/api/whatsapp/send-morning-message?target=${target}`,{credentials:'same-origin',cache:'no-store'});
+    const j=await safeJson(r);
+    if(!r.ok){statusEl.innerHTML='<span style="color:var(--red);">❌ '+(j.error||'فشل الإرسال')+'</span>';return;}
+    statusEl.innerHTML=`<span style="color:#5ce38f;">✅ اتبعتت لـ ${j.sent} من ${j.totalClients} (فشل: ${j.failed})</span>`;
+  }catch(e){
+    statusEl.innerHTML='<span style="color:var(--red);">❌ '+(e.name+': '+e.message)+'</span>';
+  }
 }
 async function loadAdminNotifSettings(){
   try{

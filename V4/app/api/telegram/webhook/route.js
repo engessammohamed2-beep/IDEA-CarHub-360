@@ -35,20 +35,25 @@ export async function GET() {
 }
 
 export async function POST(req) {
+  console.log("[telegram webhook] === طلب POST جديد وصل ===");
   try {
     const update = await req.json();
+    console.log("[telegram webhook] الـ body اتقرا صح:", JSON.stringify(update).slice(0, 300));
     const msg = update.message;
     if (!msg || !msg.text) {
-      // تحديثات تانية (زي edited_message أو callback_query) — نتجاهلها بهدوء دلوقتي
+      console.log("[telegram webhook] مفيش message.text — نتجاهل (ده طبيعي لو edited_message أو callback_query)");
       return NextResponse.json({ ok: true, ignored: true });
     }
 
     const chatId = String(msg.chat.id);
     const text = msg.text.trim();
+    console.log("[telegram webhook] chatId:", chatId, "| text:", text);
 
     // ─── /start CODE أو /start لوحدها: ربط الحساب ───
     if (text.indexOf("/start") === 0) {
+      console.log("[telegram webhook] بيعالج /start...");
       await handleStart(chatId, text);
+      console.log("[telegram webhook] /start اتعالج بنجاح");
       return NextResponse.json({ ok: true });
     }
 
@@ -58,7 +63,12 @@ export async function POST(req) {
     }
 
     // ─── بوابة صلاحية الترخيص: لو الحساب اتمسح من Licenses، منكملش ───
-    const validLicense = await hasValidTelegramLicense(chatId).catch(() => true);
+    console.log("[telegram webhook] بيفحص صلاحية الترخيص...");
+    const validLicense = await hasValidTelegramLicense(chatId).catch((e) => {
+      console.error("[telegram webhook] hasValidTelegramLicense رمت استثناء:", e.message);
+      return true;
+    });
+    console.log("[telegram webhook] نتيجة فحص الترخيص:", validLicense);
     if (!validLicense) {
       await sendTelegramMessage(
         chatId,
@@ -68,7 +78,9 @@ export async function POST(req) {
     }
 
     // ─── جيب بيانات العميل عن طريق رقم الواتساب المرتبط بالـ chatId ده ───
+    console.log("[telegram webhook] بيدور على waPhone المرتبط بـ chatId:", chatId);
     const waPhone = await resolveWaPhoneFromTelegramChatId(chatId);
+    console.log("[telegram webhook] waPhone المُلاقى:", waPhone);
     if (!waPhone) {
       await sendTelegramMessage(
         chatId,
@@ -77,7 +89,9 @@ export async function POST(req) {
       return NextResponse.json({ ok: true });
     }
 
+    console.log("[telegram webhook] بيجيب بيانات العميل من waPhone:", waPhone);
     const client = await getClientByPhone(waPhone);
+    console.log("[telegram webhook] client اتلاقى؟", !!client, client ? ("code: " + client.code) : "");
     if (!client) {
       await sendTelegramMessage(
         chatId,
@@ -96,6 +110,7 @@ export async function POST(req) {
       raw: msg,
     });
 
+    console.log("[telegram webhook] بيمرر لـ routeIncomingMessage...");
     try {
       await routeIncomingMessage(client, chatId, text);
     } catch (routeErr) {
@@ -107,7 +122,9 @@ export async function POST(req) {
 
     return NextResponse.json({ ok: true });
   } catch (e) {
+    console.error("[telegram webhook] === خطأ عام غير متوقع ===");
     console.error("telegram webhook POST error:", e.message);
+    console.error("Stack trace:", e.stack);
     // برضه نرجّع 200 لتليجرام عشان متعملش retry storm، لكن نسجل الخطأ في اللوج
     return NextResponse.json({ ok: false, error: e.message }, { status: 200 });
   }

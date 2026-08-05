@@ -535,6 +535,7 @@ export async function getAllOptedInClients() {
         name: resolveClientName(licenseRows, row.Code, car.waPhone, car.owner),
         phone: car.waPhone,
         tgChatId,
+        role: (license?.Role || "client").trim(),
         car,
         carId: car.id,
         allCars: cars,

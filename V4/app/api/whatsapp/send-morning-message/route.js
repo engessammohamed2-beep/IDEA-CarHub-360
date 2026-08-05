@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAllOptedInClients, getCarStatus, getLicenseStatus, getNextService, getViolationsStatus } from "@/lib/google-sheets";
 import { sendTemplateMessage, sendTextMessage, sendButtonsMessage } from "@/lib/whatsapp";
+import { requireAdminSession } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -122,33 +123,46 @@ export async function POST(req) {
 }
 
 async function handleMorningBroadcast(req) {
-  // حماية الـ endpoint: Vercel Cron بيبعت Header "Authorization: Bearer <CRON_SECRET>"
-  // تلقائي لو ضبطته في vercel.json، وكرون خارجي (cron-job.org) ينفع يبعته يدوي.
-  const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret) {
-    const authHeader = req.headers.get("authorization") || "";
-    const { searchParams } = new URL(req.url);
-    const querySecret = searchParams.get("secret");
-    const ok = authHeader === `Bearer ${cronSecret}` || querySecret === cronSecret;
-    if (!ok) {
-      return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
+  const { searchParams } = new URL(req.url);
+  const testTarget = searchParams.get("target"); // "admin" | "all" | null (يعني تشغيل الكرون العادي)
+
+  // وضع التجربة اليدوية من صفحة الإعدادات: لازم جلسة أدمن صالحة، مش
+  // CRON_SECRET (ده مخصص للكرون التلقائي بس)
+  if (testTarget) {
+    const admin = await requireAdminSession();
+    if (!admin) return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
+  } else {
+    // حماية الـ endpoint: Vercel Cron بيبعت Header "Authorization: Bearer <CRON_SECRET>"
+    // تلقائي لو ضبطته في vercel.json، وكرون خارجي (cron-job.org) ينفع يبعته يدوي.
+    const cronSecret = process.env.CRON_SECRET;
+    if (cronSecret) {
+      const authHeader = req.headers.get("authorization") || "";
+      const querySecret = searchParams.get("secret");
+      const ok = authHeader === `Bearer ${cronSecret}` || querySecret === cronSecret;
+      if (!ok) {
+        return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
+      }
     }
   }
 
-  // سويتش عام (Kill-switch) — الافتراضي دلوقتي "معطّل" لأن الأسكربت
-  // (Google Apps Script) هو المسؤول عن رسالة الصبح الوحيدة (بيبعتها على
-  // واتساب وتليجرام مع بعض ومعاها الدعاء). المسار ده كان بيعمل رسالة صبح
-  // تانية منفصلة، فالعميل كان بياخد رسالتين كل يوم. لو حابب ترجع تفعّله
   // Vercel هو المصدر الوحيد لرسالة الصبح دلوقتي (بعد نقل تليجرام هنا كمان) —
   // الافتراضي بقى "مفعّل". لو حابب توقفه لأي سبب، حط
   // MORNING_MESSAGE_ENABLED=false في .env.
+  // ملحوظة: وضع التجربة اليدوية (testTarget) بيتجاوز السويتش ده — الأدمن
+  // بيقدر يجرب حتى لو الرسالة اليومية التلقائية موقوفة مؤقتًا.
   const globalEnabled = String(process.env.MORNING_MESSAGE_ENABLED || "true").toLowerCase() !== "false";
-  if (!globalEnabled) {
+  if (!globalEnabled && !testTarget) {
     return NextResponse.json({ ok: true, skipped: "الرسالة اليومية بتتبعت من الأسكربت بس دلوقتي (Vercel معطّل افتراضيًا)" });
   }
 
   try {
-    const clients = await getAllOptedInClients();
+    let clients = await getAllOptedInClients();
+
+    if (testTarget === "admin") {
+      clients = clients.filter((c) => c.role === "admin");
+    }
+    // testTarget === "all" أو null: كل العملاء زي ما هي (السلوك الافتراضي)
+
     const results = [];
 
     for (const client of clients) {
@@ -165,6 +179,8 @@ async function handleMorningBroadcast(req) {
 
     return NextResponse.json({
       ok: true,
+      testMode: !!testTarget,
+      target: testTarget || "cron",
       totalClients: clients.length,
       sent,
       failed,
