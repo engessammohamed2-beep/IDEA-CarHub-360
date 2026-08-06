@@ -1,4 +1,4 @@
-import { readSheet, googleReadSheet, updateRow, appendRow, deleteRow, ensureClientDataTab, ensureLicensesTab, ensureUsersTab } from "@/lib/googleSheets";
+import { readSheet, googleReadSheet, updateRow, appendRow, deleteRow, ensureClientDataTab, ensureLicensesTab, ensureUsersTab, ensureArchiveTab } from "@/lib/googleSheets";
 
 // -----------------------------------------------------------------------------
 // IDEA CarHub 360 — طبقة قراءة بيانات العملاء لصالح تكامل واتساب
@@ -272,6 +272,73 @@ export async function hasValidTelegramLicense(chatId) {
   const licensesTab = await ensureLicensesTab();
   const licenseRows = await readSheet(licensesTab);
   return licenseRows.some((l) => String(l.Code || "").trim() === String(row.code).trim());
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// نظام الأرشفة الموحّد — مصدر الحقيقة الوحيد لأي بيانات محذوفة
+// ─────────────────────────────────────────────────────────────────────────
+
+// بيحفظ نسخة كاملة من عربية (وكل بياناتها المرتبطة: صيانات، وقود، مخالفات،
+// أعطال) في تاب Archive قبل ما تتمسح نهائيًا. reason بتوضح سبب الأرشفة
+// ("client_deleted" = العميل مسحها بنفسه، "license_revoked" = الأدمن مسح
+// كوده) عشان لو رجع نعرف نميّز.
+export async function archiveCarData({ code, car, maintenance, fuel, violations, faults, reason }) {
+  const archiveTab = await ensureArchiveTab();
+  const carLabel = [car?.brand, car?.model, car?.year].filter(Boolean).join(" ") || "عربية بدون اسم";
+  const snapshot = {
+    car,
+    maintenance: (maintenance || []).filter((m) => m.carId === car?.id),
+    fuel: (fuel || []).filter((f) => f.carId === car?.id),
+    violations: (violations || []).filter((v) => v.carId === car?.id),
+    faults: (faults || []).filter((f) => f.carId === car?.id),
+  };
+  await appendRow(archiveTab, {
+    ArchivedAt: new Date().toISOString(),
+    Reason: reason || "unknown",
+    OldCode: code || "",
+    WaPhone: normalizePhone(car?.waPhone || ""),
+    OwnerName: car?.owner || "",
+    CarLabel: carLabel,
+    DataJSON: JSON.stringify(snapshot),
+    RestoredAt: "",
+  });
+  return { ok: true };
+}
+
+// بيدور في الأرشيف عن أي سجل غير مُسترجَع لسه (RestoredAt فاضية) بنفس رقم
+// الهاتف ده — بيُستخدم عند تسجيل عميل جديد أو تجديد كود، عشان نعرف نعرض
+// عليه "لقينالك بيانات قديمة، عايز تسترجعها؟"
+export async function findArchivedByPhone(waPhone) {
+  const target = normalizePhone(waPhone);
+  const t9 = (x) => { const n = normalizePhone(x); return n.length >= 9 ? n.slice(-9) : ""; };
+  const targetTail = t9(target);
+  if (!targetTail) return [];
+
+  const archiveTab = await ensureArchiveTab();
+  const rows = await readSheet(archiveTab).catch(() => []);
+  return rows
+    .filter((r) => !r.RestoredAt && t9(r.WaPhone) === targetTail)
+    .map((r) => ({ ...r, _row: r._row }));
+}
+
+// بيرجّع سجل مؤرشف (بكل بياناته) لصف عميل حالي في ClientData، ويعلّم سجل
+// الأرشيف كمُسترجَع (من غير ما يمسحه — بيفضل موجود كتاريخ). بيرجع البيانات
+// المُسترجَعة عشان الطرف اللي نادى الدالة يقدر يدمجها في D.cars بتاعته.
+export async function restoreArchivedCar(archiveRowIndex) {
+  const archiveTab = await ensureArchiveTab();
+  const rows = await readSheet(archiveTab).catch(() => []);
+  const row = rows.find((r) => r._row === archiveRowIndex);
+  if (!row || !row.DataJSON) return { ok: false, error: "السجل مش موجود في الأرشيف" };
+
+  let snapshot;
+  try {
+    snapshot = JSON.parse(row.DataJSON);
+  } catch {
+    return { ok: false, error: "بيانات الأرشيف تالفة" };
+  }
+
+  await updateRow(archiveTab, archiveRowIndex, { RestoredAt: new Date().toISOString() });
+  return { ok: true, snapshot };
 }
 
 export async function getClientByPhone(phone) {

@@ -456,6 +456,41 @@ export async function ensureUsersTab() {
   }
 }
 
+// تاب Archive — أرشيف موحّد لكل عربية اتمسحت (سواء العميل مسحها بنفسه من
+// التطبيق، أو الأدمن مسح كوده/ترخيصه). بيحتفظ بنسخة كاملة من بيانات
+// العربية (صيانات، وقود، مخالفات، أعطال) كـ JSON، بالإضافة لأعمدة قابلة
+// للبحث (رقم الهاتف، الكود القديم) عشان نقدر نلاقيها ونسترجعها لاحقًا لو
+// العميل رجع (جدد الاشتراك مثلاً).
+async function _g_ensureArchiveTab() {
+  const sheets = getSheetsClient();
+  const tabName = process.env.SHEET_TAB_ARCHIVE || "Archive";
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID() });
+  const exists = meta.data.sheets.some((s) => s.properties.title === tabName);
+
+  if (!exists) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: SHEET_ID(),
+      requestBody: { requests: [{ addSheet: { properties: { title: tabName } } }] },
+    });
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID(),
+      range: `${tabName}!A1:H1`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: [["ArchivedAt", "Reason", "OldCode", "WaPhone", "OwnerName", "CarLabel", "DataJSON", "RestoredAt"]],
+      },
+    });
+  }
+  return tabName;
+}
+export async function ensureArchiveTab() {
+  if (!supabaseEnabled()) return _g_ensureArchiveTab();
+  try { return await _g_ensureArchiveTab(); } catch (e) {
+    console.warn("ensure tab backup failed:", e.message);
+    return "Archive";
+  }
+}
+
 
 
 // ═══════════════════════════════════════════════════════════════════════════

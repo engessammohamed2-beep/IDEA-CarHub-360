@@ -3919,23 +3919,21 @@ function sendWelcomeToBots(){
 // يوصل فيها المستوى تحت الحد الأدنى (مش هيتكرر كل ما الصفحة تتفتح)
 function sendLowFuelWarningToBots(litersRemaining){
   if(D.car._lowFuelWarned)return; // اتبعتت خلاص، منبعتهاش تاني لحد ما يفول
-  const url=D.settings.appsScriptUrl||window._centralAppsScriptUrl;
-  if(!url)return;
   const c=D.car;
-  let chatId=c.tgChatId;
   const waP=normalizeIntlPhone(c.waPhone||c.ownerPhone||'');
-  if(!chatId&&waP)chatId='wa:'+waP;
-  if(!chatId&&!waP)return;
+  const tgChatId=c.tgChatId||'';
+  if(!waP&&!tgChatId)return;
   const payload={
-    action:'sendLowFuelWarning',
-    chatId,
     waPhone:waP,
-    owner:c.owner||'',
+    tgChatId,
+    ownerName:c.owner||'',
+    brand:c.brand||'',
+    model:c.model||'',
     litersRemaining:Math.round(litersRemaining),
-    car:{brand:c.brand,model:c.model}
   };
   try{
-    fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)}).catch(()=>{});
+    fetch('/api/client/send-low-fuel-warning',{method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});
     D.car._lowFuelWarned=true;
     save();
   }catch(e){}
@@ -5071,7 +5069,7 @@ function renderSettingsTabContent(){
   }
   else if(_settingsTab==='licenses'){el.innerHTML=adminLicensesHtml();loadAdminLicenses();loadAdminCarSpecs();}
   else if(_settingsTab==='customers'){el.innerHTML=adminCustomersHtml();loadAdminCustomers();}
-  else if(_settingsTab==='ai'){el.innerHTML=adminAISettingsHtml();loadAdminAISettings();loadCentralGasUrl();loadAdminNotifSettings();loadAppConfigAdmin();}
+  else if(_settingsTab==='ai'){el.innerHTML=adminAISettingsHtml();loadAdminAISettings();loadAdminArchiveUI();loadAdminNotifSettings();loadAppConfigAdmin();}
   else if(_settingsTab==='adminnums'){el.innerHTML=adminNumbersHtml();loadAdminNumbersUI();}
   else if(_settingsTab==='mainttypes'){el.innerHTML=adminMaintTypesHtml();loadAdminMaintTypes();}
   else if(_settingsTab==='demovideos'){el.innerHTML=adminDemoVideosHtml();loadAdminDemoVideos();}
@@ -5706,17 +5704,61 @@ function adminAISettingsHtml(){
     <span id="cfg-status" style="font-size:12px;color:var(--txt3);margin-right:8px;"></span>
   </div>
   <div class="card" style="margin-bottom:14px;">
-    <div class="card-title">🔗 رابط المزامنة المركزي (Apps Script)</div>
+    <div class="card-title">📦 أرشيف العربيات المحذوفة</div>
     <div style="font-size:13px;color:var(--text-secondary);margin-bottom:10px;">
-      حط هنا رابط الـ Web App بتاع Google Apps Script (اللي بينتهي بـ /exec) —
-      كل العملاء هياخدوه تلقائياً وبياناتهم هتتزامن مع الشيت والبوتات من غير ما يظبطوا حاجة.
+      كل عربية اتمسحت (من العميل نفسه، أو من مسح كود ترخيص) بتتحفظ هنا بكل بياناتها (صيانات، وقود، مخالفات). لو العميل رجع (كود جديد)، تقدر تسترجعله بياناته من هنا.
     </div>
-    <div class="form-group">
-      <input class="form-input" id="central-gas-url" dir="ltr" placeholder="https://script.google.com/macros/s/XXXX/exec">
-    </div>
-    <button class="btn btn-primary btn-sm" onclick="saveCentralGasUrl()">💾 حفظ الرابط لكل العملاء</button>
-    <span id="central-gas-status" style="font-size:12px;color:var(--text-secondary);margin-right:8px;"></span>
+    <div id="admin-archive-list"><div style="color:var(--txt3);font-size:12px;">⏳ جاري التحميل...</div></div>
   </div>`;
+}
+
+async function loadAdminArchiveUI(){
+  const box=document.getElementById('admin-archive-list');
+  if(!box)return;
+  try{
+    const r=await fetch('/api/admin/archive',{credentials:'same-origin',cache:'no-store'});
+    const j=await safeJson(r);
+    if(!r.ok){box.innerHTML='<div style="color:var(--red);font-size:12px;">'+(j.error||'تعذر التحميل')+'</div>';return;}
+    const list=j.archived||[];
+    if(!list.length){box.innerHTML='<div style="color:var(--txt3);font-size:12px;">مفيش عربيات مؤرشفة حاليًا.</div>';return;}
+    box.innerHTML=list.map(a=>{
+      const reasonLabel=a.reason==='license_revoked'?'🔴 اتمسح الكود':(a.reason==='client_deleted'?'🗑️ العميل مسحها':a.reason);
+      const dateStr=a.archivedAt?new Date(a.archivedAt).toLocaleDateString('ar-EG'):'—';
+      return `<div style="border:1px dashed var(--border);border-radius:10px;padding:10px;margin-bottom:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:start;flex-wrap:wrap;gap:8px;">
+          <div>
+            <div style="font-weight:700;">${a.carLabel||'عربية بدون اسم'}</div>
+            <div style="font-size:12px;color:var(--txt3);">${a.ownerName||'—'} • ${a.waPhone||'—'} • ${reasonLabel} • ${dateStr}</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:8px;">
+          <input class="form-input" id="restore-code-${a.row}" placeholder="كود الترخيص الجديد" style="flex:1;font-size:12px;padding:6px 8px;">
+          <button class="btn btn-primary btn-sm" onclick="restoreArchivedCarAdmin(${a.row})">♻️ استرجاع</button>
+        </div>
+        <div id="restore-status-${a.row}" style="font-size:11px;margin-top:4px;"></div>
+      </div>`;
+    }).join('');
+  }catch(e){
+    box.innerHTML='<div style="color:var(--red);font-size:12px;">تعذر الاتصال بالسيرفر: '+e.message+'</div>';
+  }
+}
+
+async function restoreArchivedCarAdmin(row){
+  const codeInput=document.getElementById('restore-code-'+row);
+  const statusEl=document.getElementById('restore-status-'+row);
+  const targetCode=codeInput.value.trim();
+  if(!targetCode){statusEl.innerHTML='<span style="color:var(--red);">⚠️ اكتب كود الترخيص الأول</span>';return;}
+  statusEl.innerHTML='<span style="color:var(--txt3);">⏳ بيسترجع...</span>';
+  try{
+    const r=await fetch('/api/admin/archive',{method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({row,targetCode})});
+    const j=await safeJson(r);
+    if(!r.ok){statusEl.innerHTML='<span style="color:var(--red);">❌ '+(j.error||'فشل الاسترجاع')+'</span>';return;}
+    statusEl.innerHTML='<span style="color:#5ce38f;">✅ اترجعت "'+j.restoredCarName+'" للكود '+targetCode+'</span>';
+    setTimeout(()=>loadAdminArchiveUI(),1500);
+  }catch(e){
+    statusEl.innerHTML='<span style="color:var(--red);">❌ '+e.message+'</span>';
+  }
 }
 
 async function setAdminNotifSetting(key,val){
@@ -5879,23 +5921,38 @@ function editCarFromSettings(id){
   _carEditUnlocked=true;
   nav('car');
 }
-function deleteCarFromSettings(id){
+async function deleteCarFromSettings(id){
   const car=D.cars.find(c=>c.id===id);
   if(!car)return;
-  const isLastCar=D.cars.length<=1;
   const carName=[car.brand,car.model].filter(Boolean).join(' ')||'العربية دي';
-  const msg=`⚠️ هيتم حذف "${carName}" نهائيًا بكل بياناتها (صيانات، وقود، مخالفات، تراخيص) من غير رجعة.\nمتأكد؟`;
+  const msg=`⚠️ هيتم حذف "${carName}" وأرشفة بياناتها (صيانات، وقود، مخالفات، تراخيص) — لو رجعت محتاجها تقدر تسترجعها من الأدمن.\nمتأكد؟`;
   if(!confirm(msg))return;
   const wasActive=D.activeCarId===id;
-  const waPhone=car.waPhone||'';
 
-  // حذف حقيقي بالكامل — مش أرشفة. كل البيانات المرتبطة بالعربية دي بتتمسح فورًا.
+  // نأرشف البيانات كاملة الأول (قبل أي حذف محلي) — عشان لو الأرشفة فشلت
+  // لأي سبب، مفيش بيانات ضاعت
+  try{
+    await fetch('/api/client/delete-car',{method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        car,
+        maintenance:(D.maintenance||[]).filter(m=>m.carId===id),
+        fuel:(D.fuel||[]).filter(f=>f.carId===id),
+        violations:(D.violations||[]).filter(v=>v.carId===id),
+        faults:(D.faults||[]).filter(f=>f.carId===id),
+        reason:'client_deleted',
+      })});
+  }catch(e){
+    console.warn('archive failed, بس هنكمل الحذف المحلي:',e);
+  }
+
+  // دلوقتي نمسح محليًا، وsave() هتبعت النسخة الجديدة لـ ClientData تلقائيًا
   D.cars=D.cars.filter(c=>c.id!==id);
   D.maintenance=(D.maintenance||[]).filter(m=>m.carId!==id);
   D.fuel=(D.fuel||[]).filter(f=>f.carId!==id);
   D.violations=(D.violations||[]).filter(v=>v.carId!==id);
   D.faults=(D.faults||[]).filter(f=>f.carId!==id);
-  D.archivedCars=(D.archivedCars||[]).filter(c=>c.id!==id); // لو كانت متأرشفة قبل كده
+  D.archivedCars=(D.archivedCars||[]).filter(c=>c.id!==id); // لو كانت متأرشفة قبل كده محليًا
 
   if(D.cars.length===0){
     // لازم يفضل سلوت واحد فاضي عشان الواجهة متتوهش، بس هنوضّح إنها فاضية فعليًا
@@ -5909,16 +5966,7 @@ function deleteCarFromSettings(id){
     D.activeCarId=D.cars[0].id;
   }
   saveImmediate();refreshCarSwitcher();
-  syncToSheets();
-  // مسح فعلي من تاب Cars القديم (النظام القديم اللي مكانش بيتمسح منه أبدًا —
-  // ده كان السبب في ظهور بيانات عربيات محذوفة في الواتساب/التليجرام)
-  if(waPhone){
-    fetch('/api/client/delete-car',{method:'POST',credentials:'same-origin',
-      headers:{'Content-Type':'application/json'},body:JSON.stringify({waPhone})})
-      .then(safeJson).then(j=>{if(j&&j.error)console.warn('delete-car:',j.error);})
-      .catch(e=>console.warn('delete-car failed:',e));
-  }
-  toast('🗑️ اتحذفت العربية نهائيًا بكل بياناتها');
+  toast('🗑️ اتحذفت العربية واتحفظت في الأرشيف');
   renderSettingsCarsList();
 }
 
@@ -6388,15 +6436,31 @@ function getOrCreateCarTgCode(){
   if(window.__idea&&window.__idea.code)return window.__idea.code;
   return D.car.tgCode||''; // احتياطي لو الكود لسه متحملش (نادر جدًا)
 }
-function updateCarTelegramUI(){
+async function updateCarTelegramUI(){
   const code=getOrCreateCarTgCode();
   document.querySelectorAll('.idea-tg-bot-link').forEach(a=>a.href=`${TG_BOT_LINK}?start=${code}`);
   const statusEls=document.querySelectorAll('.idea-tg-status');
   if(!statusEls.length)return;
-  const html=D.car.tgChatId
-    ? `<span style="color:var(--green);font-weight:700;">✅ صاحب العربية دي مربوط بالبوت. هتوصله رسالة يوميًا الساعة 9 الصبح.</span>`
-    : `<span style="color:var(--txt3);">لسه مش مربوط. كود العربية دي: <b>${code}</b> — دوس "افتح البوت وابدأ" ثم ارجع ودوس "اربطني بالبوت".</span>`;
-  statusEls.forEach(el=>el.innerHTML=html);
+  // نتأكد فعليًا من السيرفر كل مرة، بدل ما نعتمد على D.car.tgChatId
+  // المحفوظة محليًا وممكن تكون قديمة/غلط (زي قبل نقل التليجرام لـVercel) —
+  // ده كان بيخلي التطبيق يقول "مربوط" رغم إن تليجرام نفسه بيقول العكس
+  const renderStatus=(linked)=>{
+    const html=linked
+      ? `<span style="color:var(--green);font-weight:700;">✅ صاحب العربية دي مربوط بالبوت. هتوصله رسالة يوميًا الساعة 9 الصبح.</span>`
+      : `<span style="color:var(--txt3);">لسه مش مربوط. كود العربية دي: <b>${code}</b> — دوس "افتح البوت وابدأ" ثم ارجع ودوس "اربطني بالبوت".</span>`;
+    statusEls.forEach(el=>el.innerHTML=html);
+  };
+  try{
+    const res=await fetch(`/api/telegram/checklink?code=${encodeURIComponent(code)}`,{credentials:'same-origin',cache:'no-store'});
+    const data=await safeJson(res);
+    const actuallyLinked=!!(data&&data.chatId);
+    if(actuallyLinked)D.car.tgChatId=data.chatId;
+    else if(D.car.tgChatId){D.car.tgChatId=null;save();} // كانت متسجلة بس مش صحيحة فعليًا — نصححها
+    renderStatus(actuallyLinked);
+  }catch(e){
+    // فشل الاتصال — نعرض آخر حالة معروفة محليًا كـ fallback، أحسن من مفيش حاجة
+    renderStatus(!!D.car.tgChatId);
+  }
 }
 async function linkCarTelegram(){
   const code=getOrCreateCarTgCode();
@@ -6439,56 +6503,25 @@ function dedupeMaint(list){
   return Object.values(byType);
 }
 
+// ملحوظة مهمة: الدالة دي كانت بتكتب مباشرة لتاب Cars/Users القديم عن طريق
+// الأسكربت (Google Apps Script)، بمعزل تمامًا عن ClientData (المصدر
+// الحقيقي الوحيد دلوقتي على Vercel). ده كان السبب الجذري وراء تكرار كل
+// عربية في الشيت مرتين، ووراء رجوع "أشباح" بعد الحذف — لأن الحذف كان بيمسح
+// من ClientData بس، وsyncToSheets كانت بترجّع نفس الصف في المرة الجاية.
+// الدالة بقت no-op آمنة عمدًا — كل الاستدعاءات (29 مكان) فضلت موجودة من
+// غير ما تعمل حاجة، عشان ما نضطرش نلمس كل مكان بيناديها على حدة.
 function syncToSheets(){
-  const url=D.settings.appsScriptUrl||window._centralAppsScriptUrl;let chatId=D.car.tgChatId;
-  const waP=normalizeIntlPhone(D.car.waPhone||D.car.ownerPhone||'');
-  // لو مفيش تليجرام مربوط بس فيه رقم واتساب: نزامن برضه بمعرّف واتساب
-  if(!chatId&&waP)chatId='wa:'+waP;
-  if(!url||!chatId)return;
-  const c=D.car;
-  const payload={
-    action:'sync',
-    chatId,
-    owner:c.owner||'',ownerPhone:c.ownerPhone||'',
-    waPhone:normalizeIntlPhone(c.waPhone||c.ownerPhone||''),
-    car:{brand:c.brand,model:c.model,year:c.year,plate:c.plate,plateLetters:c.plateLetters||'',plateNumbers:c.plateNumbers||'',color:c.color,km:c.km,trafficUnit:c.trafficUnit||''},
-    maintenance:dedupeMaint(curMaint()),
-    violations:curViol(),
-    licenses:c.licenses||[],
-    driverLicNum:c.driverLicNum||'',
-    privateDriverLic:c.privateDriverLic||'',privateDriverLicExp:c.privateDriverLicExp||'',
-    carLicExp:c.carLicExp||'',drvLicExp:c.drvLicExp||'',trafficCheck:c.trafficCheck||'',
-    insuranceExp:c.insuranceExp||'',insurancePolicyNum:c.insurancePolicyNum||'',insuranceCompany:c.insuranceCompany||'',
-    settings:{alertKm:D.settings.alertKm,alertDays:D.settings.alertDays,alertLicDays:D.settings.alertLicDays}
-  };
-  try{
-    fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)}).catch(()=>{});
-  }catch(e){}
+  // متعمّد: مفيش حاجة هنا. ClientData (عن طريق /api/client/appdata) هو
+  // المصدر الوحيد للحقيقة دلوقتي، وبيتحدث تلقائيًا من مسارات تانية.
+  return;
 }
 // Pull any pending odometer readings the owner sent via the Telegram bot ("ادخل القراءة")
+// ملحوظة: كانت بتسحب قراءات عداد معلّقة اتسجلت عن طريق الأسكربت القديم
+// (تاب BotState). بعد ما التليجرام والواتساب بقوا شغالين من Vercel مباشرة
+// وبيكتبوا في ClientData/odoLog على طول، الدالة دي بقت زيادة عن الحاجة —
+// no-op آمنة عمدًا عشان منسحبش من مصدر بنتخلى عنه.
 async function pullBotUpdates(){
-  const url=D.settings.appsScriptUrl||window._centralAppsScriptUrl;
-  if(!url)return;
-  (D.cars||[]).forEach(async car=>{
-    const chatId=car.tgChatId||(car.waPhone?('wa:'+normalizeIntlPhone(car.waPhone)):null);
-    if(!chatId)return;
-    try{
-      const res=await fetch(`${url}?action=pullkm&chatId=${encodeURIComponent(chatId)}`);
-      const data=await safeJson(res);
-      if(data&&data.km&&Number(data.km)>Number(car.km||0)){
-        car.km=Number(data.km);
-        // نستخدم تاريخ القراءة الفعلي اللي بعته العميل (مش وقت المزامنة
-        // دلوقتي) — ده الإصلاح الجذري: لو العميل بعت رقم من 3 أيام ولسه
-        // معلّق، هيتسجل بتاريخه الحقيقي مش وكأنه حصل النهاردة.
-        if(!car.odoLog)car.odoLog=[];
-        const readingDate=data.at?new Date(data.at):new Date();
-        car.odoLog.push({date:readingDate.toISOString().slice(0,10),at:readingDate.toISOString(),km:car.km});
-        save();
-        if(D.activeCarId===car.id){recomputeAllFuelRecords();renderHome();}
-        toast(`📍 اتسجلت قراءة عداد جديدة من البوت للعربية: ${data.km} كم`);
-      }
-    }catch(e){}
-  });
+  return;
 }
 function exportBackup(){
   const data=JSON.stringify(D,null,2);
